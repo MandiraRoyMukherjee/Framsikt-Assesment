@@ -50,13 +50,33 @@ git clone git@github.com:MandiraRoyMukherjee/Framsikt-Assesment.git
 cd Framsikt-Assesment
 npm install
 
-npm test            # 110 automated tests (the proof of the rules)
+npm test            # 119 automated tests (the proof of the rules)
 npm run typecheck   # strict TypeScript
 npm run dev         # demo at http://localhost:3000   (JSON: /api/scenario)
 npm run build       # production build (what Vercel runs)
 ```
 
-The demo page replays one deterministic scenario through the **real** core logic with simulated chat, HR, directory and clock: a first volunteer ignores the offer and the scheduler hands it over, HR is down when the receipt arrives and the claim is retried automatically, an Oslo employee visiting Bengaluru is picked for a Bengaluru refill, and finally the monthly report totals both currencies.
+Open the page and you get an **interactive simulator** (runs fully in the browser on mock data, no DB needed):
+
+| You click | What the system does |
+|-----------|----------------------|
+| **Report stock empty** (Oslo or Bengaluru) | Creates an OPEN refill, ranks volunteers (present in the office, fewest recent refills first) and offers it to one |
+| **Accept / Decline** as the offered person | Accept = COMMITTED, budget reserved. Decline = next volunteer is chosen |
+| **+3 h / +25 h / +3 days** | Moves the fake clock; the scheduler (`tick`) expires offers, reminds, hands over missed deadlines, polls HR |
+| **Upload receipt** (amount field) | Checks the monthly budget (over budget = rejected), records the purchase, files the HR claim (PENDING) |
+| **HR approve / reject** | Claim becomes REIMBURSED (or CLAIM_REJECTED + alerts) |
+| **Break it** buttons | Two people accept at once (one wins), HR down (claim retried), duplicate receipt (no second HR claim), volunteer leaves the office (skipped) |
+
+Below the simulator is a **scripted replay** of one deterministic scenario (also at `/api/scenario`) and the monthly report that combines NOK and INR.
+
+### Demo script for the live walkthrough (about 5 minutes)
+
+1. Oslo: **Report stock empty** - point out the timeline: refill OPEN, volunteer ranked, offer sent.
+2. **+3 h**: the first volunteer ignored it, the offer expired and the next person was offered (hand-over, nobody is stuck).
+3. **Accept**, then enter a receipt above the remaining budget - it is **rejected**; enter a valid one - budget updates, HR claim PENDING.
+4. Press **HR down**, upload another receipt in Bengaluru: the claim is retried automatically after HR comes back (no lost claims).
+5. **Break it - two accept at once**: exactly one wins (no double commit).
+6. **+10 days**, approve in HR: REIMBURSED, and the monthly report shows NOK + INR converted into one total.
 
 ### Deploy to Vercel
 
@@ -117,7 +137,7 @@ docs/           DESIGN.md, schema.sql
 
 ## 5. What the tests prove
 
-The three examples from the brief, plus the realities around them (110 tests, all passing):
+The three examples from the brief, plus the realities around them (119 tests, all passing):
 
 | Rule | Where |
 |---|---|

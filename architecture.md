@@ -323,9 +323,9 @@ src/domain      money, types, errors, config (offices, budgets, timers), time he
 src/ports       interfaces to chat / HR / directory / FX / repo / clock
 src/adapters    simulated stand-ins + in-memory repository
 src/services    refillService (lifecycle), volunteerSelector, budget, report
-src/demo        deterministic end-to-end scenario
-app/            Next.js demo page + /api/scenario (Vercel)
-tests/          Vitest suites (110 tests)
+src/demo        deterministic scenario + browser-safe Sandbox (drives the real RefillService from the UI)
+app/            Next.js page: interactive Simulator (client) + scripted replay, /api/scenario, /api/summary
+tests/          Vitest suites (119 tests)
 docs/           DESIGN.md (1–2 page design), schema.sql (Neon/Postgres)
 ```
 
@@ -336,7 +336,7 @@ docs/           DESIGN.md (1–2 page design), schema.sql (Neon/Postgres)
 | Choice | Why this | Alternatives considered |
 |---|---|---|
 | **TypeScript (strict)** | Discriminated unions and strict null checks make illegal states unrepresentable (`status` is a closed union). One language across core, tests and the Vercel demo. | Python (equally good for core; would need a second stack for the web demo), Java/Kotlin (heavier for a 2-hour exercise). |
-| **Vitest** | Native TS/ESM, no config, fast (110 tests in a few seconds) – fast feedback matters when tests are the proof. | Jest (needs transform config for ESM/TS). |
+| **Vitest** | Native TS/ESM, no config, fast (119 tests in a few seconds) – fast feedback matters when tests are the proof. | Jest (needs transform config for ESM/TS). |
 | **Ports & adapters (hexagonal)** | The brief demands simulated chat/HR; ports make real ones a drop-in and keep rules testable. | Mocking libraries – more brittle than hand-written fakes. |
 | **Injected `Clock`** | "Nobody completes it → hand over" is about *time*. A fake clock tests 24 h rules in microseconds, deterministically. | `jest.useFakeTimers` – patches globals, harder to reason about. |
 | **Integer minor units + currency** | Floats drift; mixing NOK and INR must be a compile/run-time error, not a silent bug. | `decimal.js` (heavier; integers are enough because we only add and convert once). |
@@ -442,7 +442,7 @@ Timers ignore business hours; presence data quality depends on people keeping ca
 
 ### 7.2 Numbers worth remembering
 
-Oslo 6 000 NOK (typical 300–1 200) · Bengaluru 15 000 INR (typical 500–3 000) · offer 2 h · commit 24 h · reminder at 50 % · escalate after 3 attempts or 48 h · claim cap 2 · fairness window 30 days · HR slow after 10 days, chase daily · 110 tests.
+Oslo 6 000 NOK (typical 300–1 200) · Bengaluru 15 000 INR (typical 500–3 000) · offer 2 h · commit 24 h · reminder at 50 % · escalate after 3 attempts or 48 h · claim cap 2 · fairness window 30 days · HR slow after 10 days, chase daily · 119 tests.
 
 ### 7.3 Test ↔ requirement map
 
@@ -454,3 +454,10 @@ Oslo 6 000 NOK (typical 300–1 200) · Bengaluru 15 000 INR (typical 500–3 00
 | Choosing who buys | `volunteerSelector.test.ts` |
 | HR realities | `hrIntegration.test.ts` |
 | End to end | `scenario.test.ts` |
+
+## Frontend simulator (why it exists, how it works)
+
+- **Why:** the assessment is about logic, but the live walkthrough needs something visual. The simulator lets the reviewer *cause* each situation (empty stock, ignored offer, HR down, race, over budget) instead of reading about it.
+- **How:** `src/demo/sandbox.ts` wraps the *same* `RefillService` used by the tests with the in-memory fakes (chat, HR, directory, FX, clock, repository). `app/Simulator.tsx` is a client component that calls the sandbox and re-renders from `sandbox.view()`. No server, no DB: the whole thing is a static page on Vercel.
+- **Time travel:** the fake clock is advanced by buttons and `tick()` is run after every jump, exactly what a cron job would do in production.
+- **Interview answer:** "The UI contains no business rules. Every rule lives in the service, so what you click is what the tests prove."
