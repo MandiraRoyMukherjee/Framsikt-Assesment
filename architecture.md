@@ -306,7 +306,8 @@ erDiagram
 - A new refill needs `available ≥ typicalMin`.
 - On commit, reserve `min(typicalMax, available)`.
 - Month boundaries use the **office's timezone**.
-- Over-budget purchases are **recorded and flagged**, never rejected – the money is already spent.
+- A purchase larger than what is left this month is **rejected** (`BudgetError`, nothing recorded, no HR claim). Only a **manager override** lets it through, and it is then flagged `OVER_BUDGET`. Trade-off: a volunteer who already paid cash must wait for the manager – acceptable because the reservation told them the limit *before* they shopped.
+- A receipt image can back only one refill → duplicate submissions never create a second HR claim.
 
 **`tick()`** – the single scheduler entry point. Idempotent sweep: offer timeouts, commit deadlines, 50 % reminders, escalation, HR claim retry, HR polling, slow-claim chasing. Safe to run twice, concurrently, or after downtime.
 
@@ -324,7 +325,7 @@ src/adapters    simulated stand-ins + in-memory repository
 src/services    refillService (lifecycle), volunteerSelector, budget, report
 src/demo        deterministic end-to-end scenario
 app/            Next.js demo page + /api/scenario (Vercel)
-tests/          Vitest suites (107 tests)
+tests/          Vitest suites (110 tests)
 docs/           DESIGN.md (1–2 page design), schema.sql (Neon/Postgres)
 ```
 
@@ -335,7 +336,7 @@ docs/           DESIGN.md (1–2 page design), schema.sql (Neon/Postgres)
 | Choice | Why this | Alternatives considered |
 |---|---|---|
 | **TypeScript (strict)** | Discriminated unions and strict null checks make illegal states unrepresentable (`status` is a closed union). One language across core, tests and the Vercel demo. | Python (equally good for core; would need a second stack for the web demo), Java/Kotlin (heavier for a 2-hour exercise). |
-| **Vitest** | Native TS/ESM, no config, fast (74 tests in < 1 s) – fast feedback matters when tests are the proof. | Jest (needs transform config for ESM/TS). |
+| **Vitest** | Native TS/ESM, no config, fast (110 tests in a few seconds) – fast feedback matters when tests are the proof. | Jest (needs transform config for ESM/TS). |
 | **Ports & adapters (hexagonal)** | The brief demands simulated chat/HR; ports make real ones a drop-in and keep rules testable. | Mocking libraries – more brittle than hand-written fakes. |
 | **Injected `Clock`** | "Nobody completes it → hand over" is about *time*. A fake clock tests 24 h rules in microseconds, deterministically. | `jest.useFakeTimers` – patches globals, harder to reason about. |
 | **Integer minor units + currency** | Floats drift; mixing NOK and INR must be a compile/run-time error, not a silent bug. | `decimal.js` (heavier; integers are enough because we only add and convert once). |
@@ -409,7 +410,7 @@ That is the status quo that fails (bystander effect, double purchases). Sequenti
 A stored counter can drift from reality (a missed update, a rejected claim). Deriving from the refill history is always correct, and data volume is tiny.
 
 **Q: What if the budget is exhausted but the box is empty?**
-No offer is made; the manager is told once and can approve an override (`approveBudgetOverride`). Purchases that exceed the budget are never blocked after the fact – they are recorded and flagged.
+No offer is made; the manager is told once and can approve an override (`approveBudgetOverride`). A purchase that exceeds what is left is rejected at receipt time unless the manager approved an override (then it is recorded and flagged). The volunteer is told the limit up front via the reservation, so surprises are rare.
 
 **Q: Why optimistic over pessimistic locking?**
 Low contention, serverless-friendly (no connection held across requests), and the failure mode (retry/err) is fine for a chat interaction.
@@ -441,7 +442,7 @@ Timers ignore business hours; presence data quality depends on people keeping ca
 
 ### 7.2 Numbers worth remembering
 
-Oslo 6 000 NOK (typical 300–1 200) · Bengaluru 15 000 INR (typical 500–3 000) · offer 2 h · commit 24 h · reminder at 50 % · escalate after 3 attempts or 48 h · claim cap 2 · fairness window 30 days · HR slow after 10 days, chase daily · 107 tests.
+Oslo 6 000 NOK (typical 300–1 200) · Bengaluru 15 000 INR (typical 500–3 000) · offer 2 h · commit 24 h · reminder at 50 % · escalate after 3 attempts or 48 h · claim cap 2 · fairness window 30 days · HR slow after 10 days, chase daily · 110 tests.
 
 ### 7.3 Test ↔ requirement map
 

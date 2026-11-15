@@ -50,7 +50,7 @@ git clone git@github.com:MandiraRoyMukherjee/Framsikt-Assesment.git
 cd Framsikt-Assesment
 npm install
 
-npm test            # 107 automated tests (the proof of the rules)
+npm test            # 110 automated tests (the proof of the rules)
 npm run typecheck   # strict TypeScript
 npm run dev         # demo at http://localhost:3000   (JSON: /api/scenario)
 npm run build       # production build (what Vercel runs)
@@ -117,7 +117,7 @@ docs/           DESIGN.md, schema.sql
 
 ## 5. What the tests prove
 
-The three examples from the brief, plus the realities around them (107 tests, all passing):
+The three examples from the brief, plus the realities around them (110 tests, all passing):
 
 | Rule | Where |
 |---|---|

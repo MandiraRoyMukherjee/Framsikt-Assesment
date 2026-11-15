@@ -10,7 +10,6 @@
  * Time never comes from the system clock directly: everything uses the injected Clock,
  * so the "nobody completes it -> hand over" rules are tested by advancing a fake clock.
  */
-import { randomUUID } from "node:crypto";
 import { DEFAULT_CONFIG, type Config } from "../domain/config";
 import {
   ActiveRefillExistsError,
@@ -61,7 +60,7 @@ export class RefillService {
   constructor(private readonly deps: Deps) {
     this.config = deps.config ?? DEFAULT_CONFIG;
     this.offices = new Map(deps.offices.map((o) => [o.id, o]));
-    this.newId = deps.idGenerator ?? (() => randomUUID());
+    this.newId = deps.idGenerator ?? (() => globalThis.crypto.randomUUID());
   }
 
   // ------------------------------------------------------------------ queries
@@ -208,17 +207,32 @@ export class RefillService {
     if (input.amount.minor <= 0) throw new InvalidTransitionError("Purchase amount must be positive");
     if (!input.receiptImageRef) throw new InvalidTransitionError("A receipt image is required");
 
+    const all = await this.deps.repo.list();
+    // Duplicate receipt: the same receipt can never back two refills (so never two HR claims).
+    if (all.some((r) => r.id !== refill.id && r.purchase?.receipt.imageRef === input.receiptImageRef)) {
+      throw new InvalidTransitionError("This receipt was already submitted for another refill");
+    }
+
     const now = this.deps.clock.now();
-    const before = summarize(office, monthKey(now, office.timezone), await this.deps.repo.list());
+    const before = summarize(office, monthKey(now, office.timezone), all);
     // "before" includes this refill's own reservation; add it back to see the budget without it.
     const availableWithoutOwn = refill.reservation
       ? money(before.available.minor + refill.reservation.minor, office.currency)
       : before.available;
 
+    // Budget cannot be overspent: a purchase above what is left this month is REJECTED, unless the
+    // office manager has explicitly approved an override for this refill (then it is recorded + flagged).
+    const overBudget = gt(input.amount, availableWithoutOwn);
+    if (overBudget && !refill.flags.includes("BUDGET_OVERRIDE")) {
+      throw new BudgetError(
+        `${format(input.amount)} exceeds the ${format(availableWithoutOwn)} left in the ${office.name} monthly budget. Ask the manager to approve an override.`,
+      );
+    }
+
     const flags = new Set(refill.flags);
     if (refill.reservation && gt(input.amount, refill.reservation)) flags.add("OVER_RESERVATION");
     if (lt(input.amount, office.typicalMin) || gt(input.amount, office.typicalMax)) flags.add("UNUSUAL_AMOUNT");
-    if (gt(input.amount, availableWithoutOwn)) flags.add("OVER_BUDGET"); // real money was spent: record + flag, never block
+    if (overBudget) flags.add("OVER_BUDGET");
     if (await this.receiptDisagrees(input)) flags.add("RECEIPT_MISMATCH");
     refill.flags = [...flags];
 
@@ -286,9 +300,13 @@ export class RefillService {
     const refill = await this.getRefill(refillId);
     const office = this.office(refill.officeId);
     if (managerId !== office.managerId) throw new InvalidTransitionError(`${managerId} is not the manager of ${office.name}`);
-    if (refill.status !== "OPEN") throw new InvalidTransitionError("Only an OPEN refill can be overridden");
+    if (refill.status !== "OPEN" && refill.status !== "COMMITTED") {
+      throw new InvalidTransitionError("Only an OPEN or COMMITTED refill can be overridden");
+    }
     if (!refill.flags.includes("BUDGET_OVERRIDE")) refill.flags.push("BUDGET_OVERRIDE");
-    await this.assign(refill, office);
+    // OPEN: let the refill proceed past a used-up budget. COMMITTED: allow the over-budget purchase.
+    if (refill.status === "OPEN") await this.assign(refill, office);
+    else await this.persist(refill);
     return refill;
   }
 

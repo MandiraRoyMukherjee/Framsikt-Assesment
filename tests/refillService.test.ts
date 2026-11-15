@@ -5,9 +5,10 @@ import { emp, HOUR, setup } from "./helpers/setup";
 
 const team = [emp("anna", "OSL"), emp("bjorn", "OSL"), emp("chloe", "OSL"), emp("ravi", "BLR"), emp("sita", "BLR")];
 
+let receiptSeq = 0;
 const purchase = (amount: number, currency: "NOK" | "INR" = "NOK") => ({
   amount: major(amount, currency),
-  receiptImageRef: "receipt.jpg",
+  receiptImageRef: `receipt-${++receiptSeq}.jpg`, // every real receipt is a different image
   items: [{ name: "Chips", quantity: 6 }],
 });
 
@@ -28,7 +29,7 @@ describe("refill lifecycle: empty -> reimbursed (happy path)", () => {
     expect(bought.status).toBe("CLAIM_SUBMITTED"); // claim filed automatically
     expect(hr.claims.size).toBe(1);
     const claim = [...hr.claims.values()][0]!;
-    expect(claim).toMatchObject({ employeeId: owner, receiptImageRef: "receipt.jpg" });
+    expect(claim).toMatchObject({ employeeId: owner, receiptImageRef: bought.purchase?.receipt.imageRef });
     expect(claim.amount).toEqual(major(800, "NOK"));
 
     // HR takes days to approve; until then nothing changes
@@ -316,13 +317,65 @@ describe("RULE: budget", () => {
     expect(next.refill.status).toBe("OFFERED"); // April budget untouched
   });
 
-  it("an over-budget purchase is recorded (money was spent) but flagged for the manager", async () => {
+  it("a purchase that exceeds the monthly budget is REJECTED and nothing is recorded or claimed", async () => {
+    const { service, hr } = setup([emp("anna", "OSL")]);
+    const { refill } = await service.reportEmpty("OSL", "anna");
+    await service.accept(refill.id, "anna");
+    await expect(service.recordPurchase(refill.id, "anna", purchase(6500))).rejects.toBeInstanceOf(BudgetError);
+
+    const after = await service.getRefill(refill.id);
+    expect(after.status).toBe("COMMITTED"); // still owned, can retry with a valid amount
+    expect(after.purchase).toBeUndefined();
+    expect(hr.claims.size).toBe(0);
+    // the exact boundary is allowed: the whole budget can be used
+    const ok = await service.recordPurchase(refill.id, "anna", purchase(6000));
+    expect(ok.status).toBe("CLAIM_SUBMITTED");
+  });
+
+  it("an over-budget purchase is accepted only after the manager approves an override, and is flagged", async () => {
     const { service } = setup([emp("anna", "OSL")]);
     const { refill } = await service.reportEmpty("OSL", "anna");
     await service.accept(refill.id, "anna");
+    await expect(service.approveBudgetOverride(refill.id, "anna")).rejects.toBeInstanceOf(InvalidTransitionError);
+    await service.approveBudgetOverride(refill.id, "mgr-osl");
     const done = await service.recordPurchase(refill.id, "anna", purchase(6500));
     expect(done.purchase?.amount).toEqual(major(6500, "NOK"));
-    expect(done.flags).toEqual(expect.arrayContaining(["OVER_BUDGET", "OVER_RESERVATION", "UNUSUAL_AMOUNT"]));
+    expect(done.flags).toEqual(expect.arrayContaining(["OVER_BUDGET", "OVER_RESERVATION", "UNUSUAL_AMOUNT", "BUDGET_OVERRIDE"]));
+  });
+
+  it("two refills competing for the remaining budget: the budget cannot be overspent", async () => {
+    // Oslo and a 2nd office are independent, so compete within ONE office over time: after the first
+    // purchase only 1 000 NOK remains; the next buyer's reservation shrinks to it and a larger bill is rejected.
+    const { service } = setup([emp("anna", "OSL"), emp("bjorn", "OSL")]);
+    const a = await service.reportEmpty("OSL", "anna");
+    await service.accept(a.refill.id, a.refill.assigneeId!);
+    await service.recordPurchase(a.refill.id, a.refill.assigneeId!, purchase(5000));
+
+    const b = await service.reportEmpty("OSL", "anna");
+    expect(b.refill.status).toBe("OFFERED");
+    const second = b.refill.assigneeId!;
+    const committed = await service.accept(b.refill.id, second);
+    expect(committed.reservation).toEqual(major(1000, "NOK")); // capped to what is left
+    await expect(service.recordPurchase(b.refill.id, second, purchase(1200))).rejects.toBeInstanceOf(BudgetError);
+    const ok = await service.recordPurchase(b.refill.id, second, purchase(1000));
+    expect(ok.status).toBe("CLAIM_SUBMITTED");
+  });
+
+  it("duplicate receipt: the same receipt cannot create a second refill purchase or a second HR claim", async () => {
+    const { service, hr } = setup([emp("anna", "OSL")]);
+    const a = await service.reportEmpty("OSL", "anna");
+    await service.accept(a.refill.id, "anna");
+    const input = purchase(500);
+    await service.recordPurchase(a.refill.id, "anna", input);
+
+    const b = await service.reportEmpty("OSL", "anna");
+    await service.accept(b.refill.id, b.refill.assigneeId!);
+    await expect(service.recordPurchase(b.refill.id, b.refill.assigneeId!, input)).rejects.toBeInstanceOf(InvalidTransitionError);
+    expect(hr.claims.size).toBe(1);
+
+    // submitting the SAME refill's purchase again is also rejected (it is no longer COMMITTED)
+    await expect(service.recordPurchase(a.refill.id, "anna", input)).rejects.toBeInstanceOf(InvalidTransitionError);
+    expect(hr.claims.size).toBe(1);
   });
 
   it("rejects a purchase in the wrong currency, zero amounts and missing receipts", async () => {
