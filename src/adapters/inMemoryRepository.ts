@@ -47,7 +47,6 @@ export class InMemoryRefillRepository implements RefillRepository {
         `Refill ${refill.id} changed concurrently (expected v${expectedVersion}, found v${current.version})`,
       );
     }
-    // Same invariant as the DB index: re-activating must not create a second active refill.
     refill.version = expectedVersion + 1;
     this.rows.set(refill.id, structuredClone(refill));
   }
