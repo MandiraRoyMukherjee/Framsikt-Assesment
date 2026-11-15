@@ -1,5 +1,6 @@
 import { runScenario } from "../src/demo/scenario";
 import { format } from "../src/domain/money";
+import Simulator from "./Simulator";
 
 // The scenario is deterministic (fake clock, fake HR/chat), so the page can be built statically.
 export const dynamic = "force-static";
@@ -17,13 +18,28 @@ export default async function Page() {
     <main style={{ maxWidth: 960, margin: "0 auto", padding: "32px 16px" }}>
       <h1 style={{ marginBottom: 4 }}>Snack Counter Automation</h1>
       <p style={{ color: "#57606a", marginTop: 0 }}>
-        Live run of the real core logic (refill lifecycle, volunteer selection, budget check) against simulated chat, HR,
-        directory and clock. Same code the automated tests exercise. JSON:{" "}
-        <a href="/api/scenario">/api/scenario</a> · AI summary: <a href="/api/summary">/api/summary</a>
+        Interactive simulator of the real core logic (refill lifecycle, volunteer selection, budget check) against
+        simulated chat, HR, directory and clock. Runs fully in your browser on mock data - same code the automated
+        tests exercise. JSON: <a href="/api/scenario">/api/scenario</a> · AI summary: <a href="/api/summary">/api/summary</a>
       </p>
 
       <section style={card}>
-        <h2 style={{ marginTop: 0 }}>Monthly report - {report.month}</h2>
+        <h2 style={{ marginTop: 0 }}>How to walk through it</h2>
+        <ol style={{ margin: 0, paddingLeft: 20, fontSize: 14, lineHeight: 1.7 }}>
+          <li>Press <b>Report stock empty</b> on an office: a refill is created OPEN and the best volunteer is offered it.</li>
+          <li><b>Accept</b> as that volunteer (or Decline / let the offer expire with +3 h): the next volunteer is chosen, fewest refills first.</li>
+          <li>Upload a receipt: the budget is checked, an over-budget purchase is rejected, then the HR claim goes PENDING.</li>
+          <li>Jump time forward and approve/reject in HR: the refill ends REIMBURSED and the monthly report updates.</li>
+          <li>Use the <b>Break it</b> buttons (two people accept at once, HR down, duplicate receipt, volunteer leaves the office) to show the safeguards.</li>
+        </ol>
+      </section>
+
+      <Simulator />
+
+      <h2 style={{ marginTop: 32 }}>Scripted replay (deterministic scenario)</h2>
+
+      <section style={card}>
+        <h3 style={{ marginTop: 0 }}>Monthly report - {report.month}</h3>
         <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 14 }}>
           <thead>
             <tr>
@@ -59,7 +75,7 @@ export default async function Page() {
       </section>
 
       <section style={card}>
-        <h2 style={{ marginTop: 0 }}>Timeline</h2>
+        <h3 style={{ marginTop: 0 }}>Timeline</h3>
         <ol style={{ listStyle: "none", padding: 0, margin: 0, fontSize: 13 }}>
           {timeline.map((t, i) => (
             <li key={i} style={{ padding: "4px 0", borderBottom: "1px solid #f0f1f3", display: "flex", gap: 8 }}>
