@@ -69,6 +69,10 @@ export class RefillService {
     return r;
   }
 
+  async listRefills(): Promise<Refill[]> {
+    return this.deps.repo.list();
+  }
+
   // ------------------------------------------------------------ 1. report empty
 
   /**
