@@ -87,6 +87,13 @@ Both implement the same ports, so `RefillService` behaves identically. [`tests/p
 4. On Vercel add the same `DATABASE_URL` under *Project → Settings → Environment Variables*.
 5. Still to be written for a real rollout: `ChatPort`, `HrPort` and the calendar-based `DirectoryPort` for the real chat tool / HR API, and a scheduler (Vercel Cron) calling `RefillService.tick()` every ~5 minutes.
 
+**Troubleshooting `ETIMEDOUT` / `ENETUNREACH` on port 5432** (seen while setting this up): the network was fine – TCP to Neon was open. Two causes:
+- Use **Node 20+**. In WSL a non-login shell may pick `/usr/bin/node` (v16, which also lacks `--env-file`); check `node -v`.
+- Node ≥ 20 gives each resolved address only 250 ms to connect, and Neon's pooler resolves to several IPv4/IPv6 addresses, so connects fail intermittently. [`src/db/pool.ts`](src/db/pool.ts) raises this with `net.setDefaultAutoSelectFamilyAttemptTimeout(5000)`.
+
+The pg warning about `sslmode=require` is informational (pg 8 treats it as `verify-full`, which is the safe behaviour). Neon connection strings may also carry `channel_binding=require`; both work with this setup.
+
+
 The two concurrency rules live **in the database**: a partial unique index (`one_active_refill_per_office`) and `UPDATE … WHERE id=$1 AND version=$2` (zero rows → `ConflictError`).
 
 ---
