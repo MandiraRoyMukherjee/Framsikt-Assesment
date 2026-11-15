@@ -19,7 +19,7 @@ export default async function Page() {
       <p style={{ color: "#57606a", marginTop: 0 }}>
         Live run of the real core logic (refill lifecycle, volunteer selection, budget check) against simulated chat, HR,
         directory and clock. Same code the automated tests exercise. JSON:{" "}
-        <a href="/api/scenario">/api/scenario</a>
+        <a href="/api/scenario">/api/scenario</a> · AI summary: <a href="/api/summary">/api/summary</a>
       </p>
 
       <section style={card}>

@@ -324,7 +324,7 @@ src/adapters    simulated stand-ins + in-memory repository
 src/services    refillService (lifecycle), volunteerSelector, budget, report
 src/demo        deterministic end-to-end scenario
 app/            Next.js demo page + /api/scenario (Vercel)
-tests/          Vitest suites (83 tests)
+tests/          Vitest suites (107 tests)
 docs/           DESIGN.md (1–2 page design), schema.sql (Neon/Postgres)
 ```
 
@@ -354,7 +354,20 @@ docs/           DESIGN.md (1–2 page design), schema.sql (Neon/Postgres)
 - **Wall-clock timers, no business-hours logic.** Simpler and predictable; an offer at 17:55 may expire overnight. Next step: quiet hours per office timezone.
 - **Polling HR**, in-memory repo with real locking semantics; SQL provided but not wired.
 - **Rejected claims are excluded from spend.** The manager resolves the money; the budget should not stay blocked.
-- **Not built:** receipt OCR / amount verification, stock sensors, price benchmarking, multi-box offices, live FX feed, auth (company SSO sits in front of the bot), a full UI.
+- **Not built:** verified receipt OCR (the LLM reading is only an optional cross-check that raises a flag), stock sensors, price benchmarking, multi-box offices, live FX feed, auth (company SSO sits in front of the bot), a full UI.
+
+---
+
+## 5b. Where AI is used – and where it is deliberately not
+
+**Principle: an LLM may assist, it may never decide money or ownership.** Who buys, budgets, state transitions and totals are deterministic and unit-tested; an LLM there would be unexplainable, non-reproducible and untestable.
+
+| Use | Port | Guard-rail |
+|---|---|---|
+| Cross-check receipt total vs. the amount the volunteer typed | `ReceiptReader` | Only sets `RECEIPT_MISMATCH` (informational). Low confidence, other currency, unreadable or LLM down → no opinion. Never blocks a claim |
+| Narrative for the monthly report | `ReportSummarizer` | "LLM narrates, code computes": facts come from `MonthlyReport`; output is **verified** (every number must be in the facts) else a template is returned |
+
+Both sit behind ports with fakes, so tests are deterministic; `temperature: 0`, JSON mode and defensive parsing (`parseReceiptJson`) treat LLM output as **untrusted input**. One OpenAI-compatible `fetch` adapter works with any provider.
 
 ---
 
@@ -410,12 +423,25 @@ Slack/Teams bot adapter → `ChatPort`; HR REST client → `HrPort`; Neon Postgr
 **Q: What would you build next?**
 Quiet hours / weekends in `tick`, receipt amount validation (OCR), shopping-list suggestions from consumption data, snooze/vacation for volunteers, a manager dashboard, retries with backoff for HR.
 
+**Q: Did you use AI / an LLM in the solution? Where, and why not everywhere?**
+Yes, in two optional places, both behind ports with fakes: a receipt cross-check and a monthly-report narrative. The decisions (who buys, budget, state transitions, money) are deterministic code because they must be explainable, reproducible and testable. Rule: **an LLM may assist, never decide money or ownership.**
+
+**Q: What if the LLM is wrong or down?**
+Receipt check: a mismatch only raises a flag for a human; low confidence, unreadable, other currency or an outage mean "no opinion", and the claim is still filed. Summary: every number in the LLM text must exist in the computed facts, otherwise a deterministic template is returned. Worst case is a plain, correct sentence.
+
+**Q: How do you stop the LLM hallucinating figures in the report?**
+"LLM narrates, code computes": numbers come from `MonthlyReport`; the prompt forbids new numbers; `usesOnlyKnownNumbers` verifies the output; `temperature: 0`.
+
+**Q: Why not a vendor SDK?**
+One `fetch` adapter for any OpenAI-compatible `/chat/completions` endpoint (OpenAI, Azure, Ollama, vLLM): no lock-in, no dependency, easy to stub in tests.
+
+
 **Q: What are the weaknesses of your design?**
 Timers ignore business hours; presence data quality depends on people keeping calendars current; the claim cap can overload the few present volunteers in a small office; fairness counters use a fixed 30-day window; no receipt verification, so an inflated amount relies on HR approval.
 
 ### 7.2 Numbers worth remembering
 
-Oslo 6 000 NOK (typical 300–1 200) · Bengaluru 15 000 INR (typical 500–3 000) · offer 2 h · commit 24 h · reminder at 50 % · escalate after 3 attempts or 48 h · claim cap 2 · fairness window 30 days · HR slow after 10 days, chase daily · 74 tests.
+Oslo 6 000 NOK (typical 300–1 200) · Bengaluru 15 000 INR (typical 500–3 000) · offer 2 h · commit 24 h · reminder at 50 % · escalate after 3 attempts or 48 h · claim cap 2 · fairness window 30 days · HR slow after 10 days, chase daily · 107 tests.
 
 ### 7.3 Test ↔ requirement map
 

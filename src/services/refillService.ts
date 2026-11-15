@@ -30,6 +30,7 @@ import type {
   Refill,
 } from "../domain/types";
 import type { ChatPort, Clock, DirectoryPort, HrPort, RefillRepository } from "../ports";
+import type { ReceiptReader } from "../ports/llm";
 import { canStartRefill, reservationFor, summarize } from "./budget";
 import { buildCandidates, rankCandidates } from "./volunteerSelector";
 
@@ -42,6 +43,8 @@ export interface Deps {
   offices: Office[];
   config?: Config;
   idGenerator?: () => string;
+  /** Optional. When present, the receipt is cross-checked; a mismatch only adds a flag (never blocks). */
+  receiptReader?: ReceiptReader;
 }
 
 export interface PurchaseInput {
@@ -216,6 +219,7 @@ export class RefillService {
     if (refill.reservation && gt(input.amount, refill.reservation)) flags.add("OVER_RESERVATION");
     if (lt(input.amount, office.typicalMin) || gt(input.amount, office.typicalMax)) flags.add("UNUSUAL_AMOUNT");
     if (gt(input.amount, availableWithoutOwn)) flags.add("OVER_BUDGET"); // real money was spent: record + flag, never block
+    if (await this.receiptDisagrees(input)) flags.add("RECEIPT_MISMATCH");
     refill.flags = [...flags];
 
     refill.purchase = {
@@ -234,6 +238,24 @@ export class RefillService {
     await this.submitClaim(refill);
     return refill;
   }
+
+  /**
+   * Optional LLM cross-check of the receipt. ASSISTS a human, never decides:
+   *  - any reader error, unreadable receipt, or low confidence -> "no opinion" (false)
+   *  - only a confident reading in the SAME currency that differs by more than 1% raises a flag
+   */
+  private async receiptDisagrees(input: PurchaseInput): Promise<boolean> {
+    const reader = this.deps.receiptReader;
+    if (!reader) return false;
+    try {
+      const r = await reader.read(input.receiptImageRef);
+      if (r.totalMinor === null || r.currency !== input.amount.currency || r.confidence < 0.7) return false;
+      return Math.abs(r.totalMinor - input.amount.minor) > input.amount.minor * 0.01;
+    } catch {
+      return false;
+    }
+  }
+
 
   /** Files the HR claim. Safe to call repeatedly: it does nothing once a claim exists. */
   private async submitClaim(refill: Refill): Promise<void> {

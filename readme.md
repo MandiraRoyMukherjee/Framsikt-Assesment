@@ -50,7 +50,7 @@ git clone git@github.com:MandiraRoyMukherjee/Framsikt-Assesment.git
 cd Framsikt-Assesment
 npm install
 
-npm test            # 83 automated tests (the proof of the rules)
+npm test            # 107 automated tests (the proof of the rules)
 npm run typecheck   # strict TypeScript
 npm run dev         # demo at http://localhost:3000   (JSON: /api/scenario)
 npm run build       # production build (what Vercel runs)
@@ -99,7 +99,7 @@ src/ports       interfaces to chat / HR / directory / FX / repo / clock
 src/adapters    simulated stand-ins, in-memory repository, Postgres (Neon) repository + directory
 src/db          migrate, seed, connection pool
 scripts/        db.ts CLI (npm run db:migrate | db:seed | db:setup)
-src/services    refillService (lifecycle), volunteerSelector, budget, report
+src/services    refillService (lifecycle), volunteerSelector, budget, report, reportSummary (LLM + fallback)
 src/demo        deterministic end-to-end scenario
 app/            Next.js demo page + /api/scenario
 tests/          Vitest suites
@@ -110,7 +110,7 @@ docs/           DESIGN.md, schema.sql
 
 ## 5. What the tests prove
 
-The three examples from the brief, plus the realities around them (83 tests, all passing):
+The three examples from the brief, plus the realities around them (107 tests, all passing):
 
 | Rule | Where |
 |---|---|
@@ -131,7 +131,24 @@ Sanity check performed: disabling the optimistic-lock check makes the race tests
 - Presence is ranked before perfect fairness → an empty box today wins over rotation purity.
 - Wall-clock timers, no business-hours logic; polling HR instead of webhooks.
 - Budget is derived from history, not stored → cannot drift.
-- Not built: receipt OCR, stock sensors, price benchmarking, multi-box offices, FX feed, real auth, full UI.
+- Not built: stock sensors, price benchmarking, multi-box offices, FX feed, real auth, full UI. LLM receipt reading is only an optional cross-check (see section 8), not a verified OCR pipeline.
+
+---
+
+## 8. AI / LLM features (optional, off by default)
+
+The core rules (who buys, budget, state transitions, money) are **deterministic code, on purpose**: they must be explainable and testable. An LLM is used only where language or messy input is the problem, and **it assists but never decides**.
+
+| Feature | Where | What the LLM does | Safety rule |
+|---|---|---|---|
+| **Receipt cross-check** | `RefillService.recordPurchase` via `ReceiptReader` port | Reads the total from the receipt image | Mismatch (> 1%, confidence ≥ 0.7, same currency) only adds a `RECEIPT_MISMATCH` flag for the manager. It **never blocks** the purchase or the HR claim. Errors / low confidence = no opinion |
+| **Monthly summary** | `GET /api/summary`, `summarizeReport()` | Writes 3–5 sentences from the report | Numbers come from tested code. Every number in the LLM text must appear in the facts, otherwise the **template summary** is returned (so no hallucinated figure reaches management) |
+
+- **Enable:** set `LLM_API_KEY` (and optionally `LLM_BASE_URL`, `LLM_MODEL`) in `.env` / Vercel. Any OpenAI-compatible `/chat/completions` endpoint works (OpenAI, Azure OpenAI, Ollama, vLLM, …). No SDK, just `fetch` ([`src/adapters/openai.ts`](src/adapters/openai.ts)).
+- **Without a key:** nothing changes; `/api/summary` returns the deterministic template and `llmConfigured: false`.
+- **Tests** ([`tests/llm.test.ts`](tests/llm.test.ts)) use fakes and a stubbed `fetch`: no network, no key, no cost.
+- **Not wired in the demo page:** the demo uses simulated receipts. In production you would pass `new OpenAiReceiptReader(cfg)` as `receiptReader` when constructing `RefillService`.
+- **Privacy:** only the receipt image and aggregate report figures are sent; no employee free text. Use a company-approved endpoint for real data.
 
 ---
 

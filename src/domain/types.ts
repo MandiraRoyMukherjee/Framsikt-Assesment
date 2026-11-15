@@ -79,7 +79,9 @@ export type RefillFlag =
   | "BUDGET_OVERRIDE"
   | "OVER_RESERVATION"
   | "OVER_BUDGET"
-  | "UNUSUAL_AMOUNT";
+  | "UNUSUAL_AMOUNT"
+  /** An optional LLM receipt reading disagrees with the amount entered. Informational only. */
+  | "RECEIPT_MISMATCH";
 
 export interface Refill {
   id: string;
