@@ -1,0 +1,17 @@
+{
+  "name": "snack-counter-automation",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "Snack Counter Automation - refill lifecycle, volunteer selection and budget control (Framsikt assessment)",
+  "scripts": {
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "typecheck": "tsc --noEmit"
+  },
+  "devDependencies": {
+    "@types/node": "^20.14.0",
+    "typescript": "^5.5.0",
+    "vitest": "^2.0.5"
+  }
+}
