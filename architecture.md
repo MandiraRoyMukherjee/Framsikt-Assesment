@@ -324,7 +324,7 @@ src/adapters    simulated stand-ins + in-memory repository
 src/services    refillService (lifecycle), volunteerSelector, budget, report
 src/demo        deterministic end-to-end scenario
 app/            Next.js demo page + /api/scenario (Vercel)
-tests/          Vitest suites (74 tests)
+tests/          Vitest suites (83 tests)
 docs/           DESIGN.md (1–2 page design), schema.sql (Neon/Postgres)
 ```
 

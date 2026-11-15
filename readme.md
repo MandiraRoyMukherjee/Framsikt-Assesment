@@ -50,7 +50,7 @@ git clone git@github.com:MandiraRoyMukherjee/Framsikt-Assesment.git
 cd Framsikt-Assesment
 npm install
 
-npm test            # 74 automated tests (the proof of the rules)
+npm test            # 83 automated tests (the proof of the rules)
 npm run typecheck   # strict TypeScript
 npm run dev         # demo at http://localhost:3000   (JSON: /api/scenario)
 npm run build       # production build (what Vercel runs)
@@ -64,15 +64,30 @@ The demo page replays one deterministic scenario through the **real** core logic
 2. No environment variables are needed for the mock-data demo.
 3. Deploy.
 
-### Moving from mock data to Neon (production path)
+### Is Postgres required? No – mock data is the default
 
-1. Create a Neon project and run [`docs/schema.sql`](docs/schema.sql).
-2. Add `DATABASE_URL` to Vercel environment variables.
-3. Implement `RefillRepository` with a Postgres driver (`save` = `UPDATE … WHERE id=$1 AND version=$2`; zero rows → `ConflictError`).
-4. Implement `ChatPort`, `HrPort`, `DirectoryPort` for the real chat tool, HR API and calendar.
-5. Call `RefillService.tick()` every ~5 minutes (Vercel Cron or similar).
+| Mode | Needs a database? | Used by |
+|---|---|---|
+| **Mock / in-memory** (default) | No | `npm run dev`, `npm run build`, the demo page, Vercel deploy, most tests |
+| **Neon Postgres** (optional) | Yes (`DATABASE_URL`) | `PostgresRefillRepository` + `PostgresDirectory` in [`src/adapters/postgres.ts`](src/adapters/postgres.ts) |
 
-Only adapters change – no business rule is touched.
+Both implement the same ports, so `RefillService` behaves identically. [`tests/postgres.test.ts`](tests/postgres.test.ts) runs the same lifecycle and race tests against Postgres using `pg-mem` (an in-process Postgres emulator), so no real database is needed to run the test suite.
+
+### Using Neon Postgres (optional)
+
+1. Create a Neon project, then copy **Connection Details → pooled connection string**.
+2. `cp .env.example .env` and paste it as `DATABASE_URL` (`.env` is git-ignored; [`.env.example`](.env.example) is the committed template).
+3. Create tables and load seed data (15 Oslo + 20 Bengaluru volunteers, plus holiday / home / visiting examples):
+
+   ```bash
+   npm run db:setup      # = db:migrate (docs/schema.sql) + db:seed (src/demo/seedData.ts)
+   ```
+
+   Both commands are idempotent (`IF NOT EXISTS`, upserts), so re-running is safe.
+4. On Vercel add the same `DATABASE_URL` under *Project → Settings → Environment Variables*.
+5. Still to be written for a real rollout: `ChatPort`, `HrPort` and the calendar-based `DirectoryPort` for the real chat tool / HR API, and a scheduler (Vercel Cron) calling `RefillService.tick()` every ~5 minutes.
+
+The two concurrency rules live **in the database**: a partial unique index (`one_active_refill_per_office`) and `UPDATE … WHERE id=$1 AND version=$2` (zero rows → `ConflictError`).
 
 ---
 
@@ -81,7 +96,9 @@ Only adapters change – no business rule is touched.
 ```
 src/domain      money, types, errors, config (offices, budgets, timers), time helpers
 src/ports       interfaces to chat / HR / directory / FX / repo / clock
-src/adapters    simulated stand-ins + in-memory repository
+src/adapters    simulated stand-ins, in-memory repository, Postgres (Neon) repository + directory
+src/db          migrate, seed, connection pool
+scripts/        db.ts CLI (npm run db:migrate | db:seed | db:setup)
 src/services    refillService (lifecycle), volunteerSelector, budget, report
 src/demo        deterministic end-to-end scenario
 app/            Next.js demo page + /api/scenario
@@ -93,7 +110,7 @@ docs/           DESIGN.md, schema.sql
 
 ## 5. What the tests prove
 
-The three examples from the brief, plus the realities around them (74 tests, all passing):
+The three examples from the brief, plus the realities around them (83 tests, all passing):
 
 | Rule | Where |
 |---|---|
